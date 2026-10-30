@@ -29,6 +29,7 @@ export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
 export const SUPPORTED_CURRENCIES: SupportedCurrency[] = [
   { code: 'USD', name: 'US Dollar' },
   { code: 'EUR', name: 'Euro' },
+  { code: 'ZAR', name: 'South African Rand' },
   { code: 'GBP', name: 'British Pound' },
   { code: 'PLN', name: 'Polish Zloty' },
   { code: 'UAH', name: 'Ukrainian Hryvnia' },

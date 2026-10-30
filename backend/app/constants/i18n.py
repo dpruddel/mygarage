@@ -9,6 +9,7 @@ SUPPORTED_LANGUAGES: set[str] = {"en", "fr", "pl", "uk", "ru", "pt-BR", "de", "m
 SUPPORTED_CURRENCIES: set[str] = {
     "USD",
     "EUR",
+    "ZAR",
     "GBP",
     "PLN",
     "UAH",
