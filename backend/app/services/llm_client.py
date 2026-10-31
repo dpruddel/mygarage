@@ -1,11 +1,13 @@
 """Shared OpenAI-compatible chat client for opt-in LLM features.
 
-Reads ``llm_base_url``, ``llm_model``, and ``llm_api_key`` from settings.
+Reads ``llm_base_url``, ``llm_model``, and ``llm_api_key`` from settings
+(receipt photos may use ``llm_vision_model`` instead of ``llm_model``).
 Used by fuel receipt parse and Ask My Garage.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -62,21 +64,36 @@ async def chat_completion(
     user: str,
     temperature: float = 0,
     timeout: float = 60.0,
+    model: str | None = None,
+    image_jpeg: bytes | None = None,
 ) -> str:
-    """POST ``/chat/completions`` and return the assistant message content."""
+    """POST ``/chat/completions`` and return the assistant message content.
+
+    ``model`` overrides the ``llm_model`` setting. ``image_jpeg`` goes out as an
+    OpenAI-style ``image_url`` data URI, which Ollama's ``/v1`` endpoint and
+    hosted OpenAI-compatible APIs both accept for vision models.
+    """
     base_url = (await setting(db, "llm_base_url", "http://127.0.0.1:11434/v1")).rstrip("/")
-    model = await setting(db, "llm_model", "llama3.2")
+    model = model or await setting(db, "llm_model", "llama3.2")
     api_key = await setting(db, "llm_api_key", "")
 
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    user_content: str | list[dict[str, Any]] = user
+    if image_jpeg is not None:
+        data_uri = "data:image/jpeg;base64," + base64.b64encode(image_jpeg).decode("ascii")
+        user_content = [
+            {"type": "text", "text": user},
+            {"type": "image_url", "image_url": {"url": data_uri}},
+        ]
+
     payload = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            {"role": "user", "content": user_content},
         ],
         "temperature": temperature,
     }

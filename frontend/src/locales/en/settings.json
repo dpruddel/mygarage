@@ -297,6 +297,8 @@
     "enableLlmAssistantDesc": "Answer oil, torque, service history, and DTC troubleshooting questions from your garage data only.",
     "llmBaseUrl": "API Base URL",
     "llmModel": "Model",
+    "llmVisionModel": "Receipt photo model (optional)",
+    "llmVisionModelHint": "A vision model that reads receipt photos directly, e.g. gemma3:4b. Leave empty to read photos with OCR and the model above.",
     "llmApiKey": "API Key (Optional)",
     "llmReceiptHint": "Defaults to a local Ollama endpoint. Use the fuel form's Parse receipt control to fill a draft.",
     "llmHint": "Defaults to a local Ollama endpoint. Shared by receipt parse and Ask My Garage.",

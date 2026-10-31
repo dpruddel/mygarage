@@ -208,3 +208,124 @@ class TestReceiptParse:
                 headers=auth_headers,
             )
         assert response.status_code == 413
+
+
+def _png_bytes() -> bytes:
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (40, 80), "white").save(out, format="PNG")
+    return out.getvalue()
+
+
+def _llm_response(content: str) -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(return_value={"choices": [{"message": {"content": content}}]})
+    return response
+
+
+# What gemma3:4b returned for a real Engen slip that prints litres and a total
+# but no unit price: the date, time and amounts right, the price invented.
+_VISION_REPLY = (
+    '{"date":"2026-10-24","time":"08:20","station_name":"Engen Zaaymans Garage",'
+    '"fuel_type_used":"Unleaded 95","liters":15.42,"cost":459.21,"price_per_unit":30.00}'
+)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestReceiptParseVision:
+    async def test_photo_goes_to_vision_model_without_ocr(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        await set_settings(
+            db_session,
+            {
+                "llm_receipt_parse_enabled": "true",
+                "llm_model": "qwen2.5:7b",
+                "llm_vision_model": "gemma3:4b",
+            },
+        )
+        with (
+            patch("httpx.AsyncClient") as mock_client,
+            patch(
+                "app.services.document_ocr.DocumentOCRService.extract_text_from_bytes",
+                new=AsyncMock(return_value="should not be used"),
+            ) as ocr,
+        ):
+            mock_instance = AsyncMock()
+            mock_instance.post = AsyncMock(return_value=_llm_response(_VISION_REPLY))
+            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_instance.__aexit__ = AsyncMock(return_value=None)
+            mock_client.return_value = mock_instance
+
+            response = await client.post(
+                f"/api/vehicles/{test_vehicle['vin']}/fuel/parse-receipt",
+                files={"file": ("slip.png", _png_bytes(), "image/png")},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        ocr.assert_not_awaited()
+        payload = mock_instance.post.await_args.kwargs["json"]
+        assert payload["model"] == "gemma3:4b"
+        parts = payload["messages"][1]["content"]
+        assert parts[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+        draft = response.json()["draft"]
+        assert draft["time"] == "08:20"
+        assert draft["liters"] == 15.42
+        assert draft["cost"] == 459.21
+        # Computed from the slip's own numbers, not the model's 30.00.
+        assert draft["price_per_unit"] == 29.78
+        # "Unleaded 95" is not in the vocabulary; better empty than wrong.
+        assert draft["fuel_type_used"] is None
+
+    async def test_failed_vision_call_falls_back_to_ocr_and_text_model(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        import httpx
+
+        await set_settings(
+            db_session,
+            {
+                "llm_receipt_parse_enabled": "true",
+                "llm_model": "qwen2.5:7b",
+                "llm_vision_model": "missing-vision-model",
+            },
+        )
+        text_reply = _llm_response(
+            '{"date":"2026-10-24","liters":15.42,"cost":459.21,"fuel_type_used":"gasoline"}'
+        )
+        with (
+            patch("httpx.AsyncClient") as mock_client,
+            patch(
+                "app.services.document_ocr.DocumentOCRService.extract_text_from_bytes",
+                new=AsyncMock(return_value="Unleaded 95 P 7 15.42 R 459.21"),
+            ) as ocr,
+        ):
+            mock_instance = AsyncMock()
+            mock_instance.post = AsyncMock(
+                side_effect=[httpx.ConnectError("model not found"), text_reply]
+            )
+            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_instance.__aexit__ = AsyncMock(return_value=None)
+            mock_client.return_value = mock_instance
+
+            response = await client.post(
+                f"/api/vehicles/{test_vehicle['vin']}/fuel/parse-receipt",
+                files={"file": ("slip.png", _png_bytes(), "image/png")},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        ocr.assert_awaited_once()
+        second = mock_instance.post.await_args_list[1].kwargs["json"]
+        assert second["model"] == "qwen2.5:7b"
+        assert isinstance(second["messages"][1]["content"], str)
+        draft = response.json()["draft"]
+        assert draft["fuel_type_used"] == "gasoline"
+        assert draft["price_per_unit"] == 29.78

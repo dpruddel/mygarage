@@ -77,6 +77,7 @@ UI_WRITTEN_KEYS: dict[str, tuple[str, ...]] = {
         "llm_garage_assistant_enabled",
         "llm_base_url",
         "llm_model",
+        "llm_vision_model",
         "llm_api_key",
     ),
     "components/tabs/SettingsFilesTab.tsx": (

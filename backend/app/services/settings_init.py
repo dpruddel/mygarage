@@ -515,6 +515,15 @@ DEFAULT_SETTINGS = {
         "description": "LLM model name for receipt parse and Ask My Garage",
         "encrypted": False,
     },
+    # Empty keeps the OCR-then-text path. Thermal receipts defeat tesseract
+    # often enough that reading the photo directly is the better default when
+    # a vision model is available.
+    "llm_vision_model": {
+        "value": "",
+        "category": "integrations",
+        "description": "Vision model that reads receipt photos directly (empty = OCR, then llm_model)",
+        "encrypted": False,
+    },
     "llm_api_key": {
         "value": "",
         "category": "integrations",

@@ -127,6 +127,7 @@ function IntegrationsAdminView(): React.ReactElement {
     llm_garage_assistant_enabled: 'false',
     llm_base_url: 'http://127.0.0.1:11434/v1',
     llm_model: 'llama3.2',
+    llm_vision_model: '',
     llm_api_key: '',
   })
   const [loadedFormData, setLoadedFormData] = useState<typeof formData | null>(null)
@@ -154,6 +155,7 @@ function IntegrationsAdminView(): React.ReactElement {
         llm_garage_assistant_enabled: settingsMap['llm_garage_assistant_enabled'] || 'false',
         llm_base_url: settingsMap['llm_base_url'] || 'http://127.0.0.1:11434/v1',
         llm_model: settingsMap['llm_model'] || 'llama3.2',
+        llm_vision_model: settingsMap['llm_vision_model'] || '',
         llm_api_key: settingsMap['llm_api_key'] || '',
       }
       setFormData(newFormData)
@@ -185,6 +187,7 @@ function IntegrationsAdminView(): React.ReactElement {
         llm_garage_assistant_enabled: formData.llm_garage_assistant_enabled,
         llm_base_url: formData.llm_base_url,
         llm_model: formData.llm_model,
+        llm_vision_model: formData.llm_vision_model,
         llm_api_key: formData.llm_api_key,
       },
     })
@@ -319,6 +322,21 @@ function IntegrationsAdminView(): React.ReactElement {
                   className="w-full px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
                   placeholder="llama3.2"
                 />
+              </div>
+              <div>
+                <label htmlFor="llm_vision_model" className="block text-sm font-medium text-garage-text mb-2">
+                  {t('integrations.llmVisionModel')}
+                </label>
+                <input
+                  type="text"
+                  id="llm_vision_model"
+                  value={formData.llm_vision_model}
+                  disabled={formData.llm_receipt_parse_enabled === 'false'}
+                  onChange={(e) => setFormData({ ...formData, llm_vision_model: e.target.value })}
+                  className="w-full px-3 py-2 bg-garage-bg border border-garage-border rounded-lg text-garage-text focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                  placeholder="gemma3:4b"
+                />
+                <p className="text-xs text-garage-text-muted mt-1">{t('integrations.llmVisionModelHint')}</p>
               </div>
               <div>
                 <label htmlFor="llm_api_key" className="block text-sm font-medium text-garage-text mb-2">

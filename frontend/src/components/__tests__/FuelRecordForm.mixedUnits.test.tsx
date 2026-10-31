@@ -518,6 +518,23 @@ describe('FuelRecordForm — odometer and temperature follow their own tokens', 
     expect(postedPayload().odometer_km).toBe(72420.3)
   })
 
+  it('the RECEIPT time becomes the fill-up time on the receipt date', async () => {
+    units = LITRES_MILES_FAHRENHEIT
+    receipt.draft = { date: '2026-10-24', time: '08:20', odometer_km: 72420.3, liters: 15.42 }
+
+    render(<FuelRecordForm {...DEFAULT_PROPS} />)
+    await waitFor(() => expect(field('receipt_text')).not.toBeNull())
+
+    fireEvent.change(field('receipt_text'), { target: { value: 'Engen 15.42 R 459.21' } })
+    fireEvent.click(screen.getByRole('button', { name: 'fuel.parseReceipt' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'fuel.receiptDraftAccept' }))
+
+    fireEvent.submit(drawerForm())
+    await waitFor(() => expect(mockedApiPost).toHaveBeenCalled())
+    expect(postedPayload().date).toBe('2026-10-24')
+    expect(String(postedPayload().filled_at)).toContain('2026-10-24T08:20')
+  })
+
   it('★ the RECEIPT PREVIEW reads in the client\'s own volume unit, not canonical litres', async () => {
     // R7, and it is the one forced-unit site in this file rather than a
     // conversion branch: the preview rendered `` `${draft.liters} L` ``. The
