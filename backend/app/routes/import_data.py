@@ -693,6 +693,22 @@ def parse_date(date_str: str) -> date_type | None:
     raise ValueError(f"Unable to parse date: {date_str}")
 
 
+def _parse_filled_at(row: dict[str, str]) -> datetime | None:
+    """Read a fuel CSV's `Filled At` cell: the naive local time of the fill-up.
+
+    The exporter writes `datetime.isoformat()`; a space for the `T` and a
+    missing seconds field are accepted too. An offset, if a hand-made sheet
+    has one, is dropped: `filled_at` is wall-clock time everywhere else.
+    """
+    raw = (row.get("Filled At", "") or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw).replace(tzinfo=None)
+    except ValueError:
+        raise _RowError("Filled At must be a date and time, e.g. 2026-10-22T14:35") from None
+
+
 def parse_decimal(value: str) -> Decimal | None:
     """Parse decimal value from string."""
     if not value or value.strip() == "":
@@ -943,11 +959,16 @@ async def import_fuel_csv(
 
     for row_num, row in enumerate(rows, start=2):
         try:
-            # Parse required fields
-            date = parse_date(row.get("Date", ""))
+            # Parse required fields. `Filled At` has been exported since
+            # migration 054 but was dropped here, so a round trip lost every
+            # fill-up time; it can stand in for a blank `Date`.
+            filled_at = _parse_filled_at(row)
+            date = parse_date(row.get("Date", "")) or (filled_at.date() if filled_at else None)
             if not date:
                 import_result.add_error(row_num, "Date is required")
                 continue
+            if filled_at and filled_at.date() != date:
+                raise _RowError("Filled At is on a different day than Date")
 
             # Every unit-bearing column, converted into canonical metric
             # storage under the file's own units. v6 spells them
@@ -988,6 +1009,9 @@ async def import_fuel_csv(
             is_full_tank = parse_bool(row.get("Full Tank", "True"))
             missed_fillup = parse_bool(row.get("Missed Fill-up", "False"))
             notes = row.get("Notes", "").strip() or None
+            # Free text only: `Station ID` points into the exporting
+            # instance's address book, which this one does not share.
+            station_name = (row.get("Station", "") or "").strip()[:150] or None
 
             # Fuel type — surfaced by issue #69. rc1's importer dropped this
             # column entirely. Now: read it and route through the locale-aware
@@ -1043,6 +1067,7 @@ async def import_fuel_csv(
             record = FuelRecord(
                 vin=vin,
                 date=date,
+                filled_at=filled_at,
                 odometer_km=odometer_km,
                 engine_hours=engine_hours,
                 liters=liters,
@@ -1053,6 +1078,7 @@ async def import_fuel_csv(
                 is_full_tank=is_full_tank,
                 missed_fillup=missed_fillup,
                 notes=notes,
+                station_name_freetext=station_name,
                 fuel_type_used=(
                     normalized_fuel_type.value if normalized_fuel_type is not None else None
                 ),
@@ -1070,7 +1096,7 @@ async def import_fuel_csv(
                 db.add(record)
             import_result.add_success()
 
-        except _ImportBoundError as e:
+        except _RowError as e:
             import_result.add_error(row_num, e.reason)
         except Exception as e:
             logger.error("Fuel import row %d failed: %s", row_num, e)
