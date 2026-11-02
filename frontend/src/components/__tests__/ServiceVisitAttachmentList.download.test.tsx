@@ -71,7 +71,7 @@ describe('ServiceVisitAttachmentList download (baseURL-relative axios arg)', () 
 describe('ServiceVisitAttachmentList uploaded timestamp', () => {
   it('renders the upload date from the wire-shaped datetime', async () => {
     render(<ServiceVisitAttachmentList visitId={5} />)
-    expect(await screen.findByText(/Jan 6, 2025/)).toBeInTheDocument()
+    expect(await screen.findByText(/6 Jan 2025/)).toBeInTheDocument()
     expect(screen.queryByText(/Invalid Date/)).toBeNull()
   })
 })

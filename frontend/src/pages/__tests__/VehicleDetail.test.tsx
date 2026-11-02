@@ -787,7 +787,7 @@ describe('VehicleDetail', () => {
     await waitFor(() => expect(screen.getByText('Test Car')).toBeInTheDocument())
 
     // Hero: overdue badge (overdue 3 > 0) + the boundary-converted odometer
-    // reading chip + the reading date. `Jul 1, 2026` is hero-only (the strip
+    // reading chip + the reading date. `1 Jul 2026` is hero-only (the strip
     // renders Jun 15 / Jul 10).
     expect(await screen.findByText('vehicleStats.overdue')).toBeInTheDocument()
     expect(screen.getByText('detail.misc.odometer')).toBeInTheDocument()
@@ -797,13 +797,13 @@ describe('VehicleDetail', () => {
     // if the boundary conversion is removed or raw km leaks to the UI.
     const expectedOdometer = makeUnitFormat(IMPERIAL_UNITS).distance.formatPrimary(160000)
     expect(screen.getByText(expectedOdometer)).toBeInTheDocument()
-    expect(screen.getByText(/Jul 1, 2026/)).toBeInTheDocument()
+    expect(screen.getByText(/1 Jul 2026/)).toBeInTheDocument()
 
     // Key-facts strip mounted + label-bound (role="group" makes it swap-proof):
     const service = screen.getByRole('group', { name: 'vehicleStats.lastService' })
-    expect(within(service).getByText(/Jun 15, 2026/)).toBeInTheDocument()
+    expect(within(service).getByText(/15 Jun 2026/)).toBeInTheDocument()
     const fillup = screen.getByRole('group', { name: 'vehicleStats.lastFillUp' })
-    expect(within(fillup).getByText(/Jul 10, 2026/)).toBeInTheDocument()
+    expect(within(fillup).getByText(/10 Jul 2026/)).toBeInTheDocument()
     const spent = screen.getByRole('group', { name: 'detail.keyFacts.spent' })
     expect(within(spent).getByText(/1,234\.50/)).toBeInTheDocument()
     const upcoming = screen.getByRole('group', { name: 'detail.keyFacts.upcoming' })

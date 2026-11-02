@@ -26,9 +26,9 @@ describe('VehicleKeyFacts', () => {
     // swapping last_service_date <-> last_fillup_date fails (both dates would
     // otherwise still be in the DOM).
     const service = screen.getByRole('group', { name: 'vehicleStats.lastService' })
-    expect(within(service).getByText(/Jun 15, 2026/)).toBeInTheDocument()
+    expect(within(service).getByText(/15 Jun 2026/)).toBeInTheDocument()
     const fillup = screen.getByRole('group', { name: 'vehicleStats.lastFillUp' })
-    expect(within(fillup).getByText(/Jul 10, 2026/)).toBeInTheDocument()
+    expect(within(fillup).getByText(/10 Jul 2026/)).toBeInTheDocument()
     // Spent — real formatCurrency('1234.50') + the year, inside the Spent cell.
     const spent = screen.getByRole('group', { name: 'detail.keyFacts.spent' })
     expect(within(spent).getByText(/1,234\.50/)).toBeInTheDocument()

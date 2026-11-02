@@ -55,7 +55,7 @@ describe('FleetHealthStrip', () => {
     ).toContain('2026')
     // Next-due label (data) + formatted date.
     expect(screen.getByText('Oil change soon')).toBeInTheDocument()
-    expect(screen.getByText(/Aug 1, 2026/)).toBeInTheDocument()
+    expect(screen.getByText(/1 Aug 2026/)).toBeInTheDocument()
   })
 
   it('renders the next-due mileage (unit-formatted) for a mileage-only reminder', () => {
@@ -77,7 +77,7 @@ describe('FleetHealthStrip', () => {
     const mileage = screen.getByText(/160[,.\s]?000/)
     expect(mileage.textContent).toMatch(/km/)
     // No date row for a mileage-only reminder.
-    expect(screen.queryByText(/Aug 1, 2026/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/1 Aug 2026/)).not.toBeInTheDocument()
   })
 
   it("renders the next-due mileage in the due vehicle's own unit, not the account's (#172)", () => {

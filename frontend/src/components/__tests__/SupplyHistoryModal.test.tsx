@@ -148,16 +148,16 @@ describe('SupplyHistoryModal', () => {
     const dialogText = screen.getByRole('dialog').textContent ?? ''
 
     // Purchase entry: date, signed quantity, running balance.
-    expect(dialogText).toContain('Jan 5, 2026')
+    expect(dialogText).toContain('5 Jan 2026')
     expect(dialogText).toContain('+5.00 L')
 
     // Job-tied usage entry: date, signed (negative) quantity, running balance.
-    expect(dialogText).toContain('Jan 10, 2026')
+    expect(dialogText).toContain('10 Jan 2026')
     expect(dialogText).toContain('-1.00 L')
     expect(dialogText).toContain('4.00 L')
 
     // Standalone adjustment entry: date, signed quantity, running balance.
-    expect(dialogText).toContain('Jan 12, 2026')
+    expect(dialogText).toContain('12 Jan 2026')
     expect(dialogText).toContain('-0.50 L')
     expect(dialogText).toContain('3.50 L')
   })
@@ -191,8 +191,8 @@ describe('SupplyHistoryModal', () => {
     render(<SupplyHistoryModal supply={mockSupply} onClose={vi.fn()} />)
     const dialogText = screen.getByRole('dialog').textContent ?? ''
 
-    expect(dialogText).toContain('Sep 2, 2026')
-    expect(dialogText).not.toContain('Sep 1, 2026')
+    expect(dialogText).toContain('2 Sept 2026')
+    expect(dialogText).not.toContain('1 Sept 2026')
   })
 
   it('labels a job-tied usage as a job and a standalone usage as an adjustment', () => {

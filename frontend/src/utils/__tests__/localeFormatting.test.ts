@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { SUPPORTED_LANGUAGES, getActiveLocale, setActiveLocale } from '@/constants/i18n'
+import {
+  SUPPORTED_LANGUAGES,
+  getActiveDateLocale,
+  getActiveLocale,
+  languageToDateLocale,
+  setActiveLocale,
+} from '@/constants/i18n'
 import { formatAtPrecision, makeUnitFormat } from '@/utils/unitFormat'
 import { presetUnitsFor } from '@/types/units'
 import { formatDateForDisplay, getDateFnsLocale } from '@/utils/dateUtils'
@@ -98,8 +104,9 @@ describe('locale-aware number formatting', () => {
     // relative times ("3 months ago") stayed English everywhere.
     setActiveLocale('de')
     expect(getDateFnsLocale().code).toBe('de')
+    // English dates are day-first (languageToDateLocale).
     setActiveLocale('en')
-    expect(getDateFnsLocale().code).toBe('en-US')
+    expect(getDateFnsLocale().code).toBe('en-GB')
   })
 
   it.each(SUPPORTED_LANGUAGES.map((l) => l.code))('has a date-fns locale for %s', (code) => {
@@ -107,5 +114,22 @@ describe('locale-aware number formatting', () => {
     // Walking the real list means a new language can't skip this table.
     setActiveLocale(code)
     expect(getDateFnsLocale().code.split('-')[0]).toBe(code.split('-')[0])
+  })
+})
+
+describe('day-first English dates', () => {
+  it('formats English dates day-first but keeps US number and dollar formatting', () => {
+    setActiveLocale('en')
+    expect(getActiveDateLocale()).toBe('en-GB')
+    expect(getActiveLocale()).toBe('en-US')
+    expect(formatDateForDisplay('2026-10-24')).toBe('24 Oct 2026')
+    expect(formatDateForDisplay('2026-10-24', { year: 'numeric', month: '2-digit', day: '2-digit' })).toBe(
+      '24/10/2026',
+    )
+  })
+
+  it('leaves the other languages on their own locale', () => {
+    expect(languageToDateLocale('de')).toBe('de-DE')
+    expect(languageToDateLocale('pt-BR')).toBe('pt-BR')
   })
 })

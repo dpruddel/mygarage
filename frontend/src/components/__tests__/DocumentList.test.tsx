@@ -110,7 +110,7 @@ describe('DocumentList — empty state', () => {
 describe('DocumentList — uploaded timestamp', () => {
   it('renders the upload date from the wire-shaped datetime (fails with "Invalid Date" if it is fed to the date-only formatter)', () => {
     render(<DocumentList {...PROPS} />)
-    expect(screen.getByText('Jan 1, 2026')).toBeInTheDocument()
+    expect(screen.getByText('1 Jan 2026')).toBeInTheDocument()
     expect(screen.queryByText(/Invalid Date/)).toBeNull()
   })
 })

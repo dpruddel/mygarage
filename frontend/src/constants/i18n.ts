@@ -87,10 +87,29 @@ let activeLocale = 'en-US'
 
 export function setActiveLocale(lang: string): void {
   activeLocale = languageToLocale(lang)
+  activeDateLocale = languageToDateLocale(lang)
 }
 
 export function getActiveLocale(): string {
   return activeLocale
+}
+
+/**
+ * The locale for DATES, which differs from the number locale in one place:
+ * English shows day-first dates (24/10/2026, 24 Oct 2026) instead of the US
+ * month-first order. Numbers and currency keep `languageToLocale`, so a US
+ * dollar amount still reads $5.00 rather than en-GB's US$5.00.
+ */
+export function languageToDateLocale(lang: string): string {
+  const locale = languageToLocale(lang)
+  return locale === 'en-US' ? 'en-GB' : locale
+}
+
+let activeDateLocale = 'en-GB'
+
+/** The active date locale, kept in sync with the i18n language by setActiveLocale. */
+export function getActiveDateLocale(): string {
+  return activeDateLocale
 }
 
 /**
