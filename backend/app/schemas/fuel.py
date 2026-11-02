@@ -933,6 +933,7 @@ class FuelReceiptDraft(BaseModel):
     """Draft fuel fields extracted from a receipt (never persisted automatically)."""
 
     date: str | None = None
+    time: str | None = Field(None, description="Time of day printed on the receipt, HH:MM")
     odometer_km: float | None = None
     liters: float | None = None
     kwh: float | None = None

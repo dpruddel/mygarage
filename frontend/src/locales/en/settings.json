@@ -322,7 +322,7 @@
     "enableLlmDocuments": "Read uploaded documents with a vision model",
     "enableLlmDocumentsDesc": "A registration certificate or insurance document imported as a photo or scan is sent as images to the endpoint below. With a local Ollama they never leave your server. A PDF that contains text is read without any model.",
     "llmVisionModel": "Vision model (optional)",
-    "llmVisionModelHint": "A model that accepts images (llava, qwen2.5vl, gemini, gpt-4o…). Blank uses the model above.",
+    "llmVisionModelHint": "A model that accepts images (llava, qwen2.5vl, gemma3, gemini, gpt-4o…). Documents use the model above when this is blank. Receipt photos are sent here only when it is set and the endpoint is on your network; otherwise they are read with text recognition.",
     "llmTest": "Test connection",
     "llmTestOk": "Text model OK.",
     "llmTestVisionOk": "Text model OK, vision model OK.",

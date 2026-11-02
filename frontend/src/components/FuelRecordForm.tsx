@@ -759,6 +759,7 @@ function FuelRecordForm({ vin, record, onClose, onSuccess }: FuelRecordFormProps
   const acceptReceiptDraft = () => {
     if (!receiptDraft) return
     if (receiptDraft.date) setValue('date', receiptDraft.date, { shouldValidate: true })
+    if (receiptDraft.time) setFilledTime(formatTimeForInput(receiptDraft.time, timeFormat))
     // Through the SAME adapter and the same presentation the seed uses, so an
     // accepted draft lands the value a seeded field would have shown. This
     // used to be an inline copy of that, and the copy set the value without
@@ -1250,6 +1251,7 @@ function FuelRecordForm({ vin, record, onClose, onSuccess }: FuelRecordFormProps
                   <p className="text-sm text-garage-text">
                     {[
                       receiptDraft.date,
+                      receiptDraft.time ? formatTimeForInput(receiptDraft.time, timeFormat) : null,
                       receiptDraft.station_name,
                       // R7: the draft's `liters` is CANONICAL litres, which is why
                       // `acceptReceiptDraft` seeds the field through
