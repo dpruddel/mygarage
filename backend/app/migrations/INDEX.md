@@ -162,3 +162,4 @@ migrations must swallow their own operational errors.
 | `150_add_vehicle_identifier` | **FATAL**: Add vehicles.identifier_type and vehicles.identifier (#226). |
 | `151_add_fuel_octane_scale` | **FATAL**: Add fuel_records.octane_scale, the scale a fill-up's octane was read on (B4). |
 | `152_add_vehicle_inspection_due_date` | **FATAL**: Add vehicles.inspection_due_date, the deadline field X.1 prints (#211). |
+| `153_add_date_format` | **FATAL**: Add users.date_format, day-first or month-first dates for this person. |

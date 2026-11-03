@@ -8494,6 +8494,8 @@ export interface components {
             accent_color?: string | null;
             /** Currency Code */
             currency_code?: string | null;
+            /** Date Format */
+            date_format?: string | null;
             /** Email */
             email?: string | null;
             /** Family Dashboard Order */
@@ -19439,6 +19441,11 @@ export interface components {
              * @default name
              */
             dashboard_sort: string;
+            /**
+             * Date Format
+             * @default mdy
+             */
+            date_format: string;
             /** Default Payment Method */
             default_payment_method?: string | null;
             /** Default Trip Type */
@@ -19570,6 +19577,8 @@ export interface components {
             currency_code?: string | null;
             /** Dashboard Sort */
             dashboard_sort?: string | null;
+            /** Date Format */
+            date_format?: string | null;
             /** Default Payment Method */
             default_payment_method?: string | null;
             /** Default Trip Type */
