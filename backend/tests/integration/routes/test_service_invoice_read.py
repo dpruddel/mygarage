@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import io
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pymupdf
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from PIL import Image
 from sqlalchemy import func, select
@@ -35,20 +37,52 @@ REPLY = {
     "tax_amount": None,
     "total": 621.5,
     "line_items": [
-        {"description": "air filter incl. oil", "quantity": 1, "unit_price": 440, "amount": 440, "kind": "part"},
-        {"description": "brake fluid", "quantity": 0.33, "unit_price": 550, "amount": 181.5, "kind": "part"},
+        {
+            "description": "air filter incl. oil",
+            "quantity": 1,
+            "unit_price": 440,
+            "amount": 440,
+            "kind": "part",
+        },
+        {
+            "description": "brake fluid",
+            "quantity": 0.33,
+            "unit_price": 550,
+            "amount": 181.5,
+            "kind": "part",
+        },
     ],
 }
 
 
-async def _settings(db: AsyncSession, values: dict[str, str]) -> None:
+_TOUCHED = ("llm_document_reading_enabled", "llm_base_url")
+
+
+async def _settings(db: AsyncSession, values: dict[str, str | None]) -> None:
     for key, value in values.items():
         row = (await db.execute(select(Setting).where(Setting.key == key))).scalar_one_or_none()
-        if row is None:
+        if value is None:
+            if row is not None:
+                await db.delete(row)
+        elif row is None:
             db.add(Setting(key=key, value=value))
         else:
             row.value = value
     await db.commit()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _restore_settings(db_session: AsyncSession) -> AsyncIterator[None]:
+    """The settings table outlives a test: put back what these tests change,
+    or the document reader's own tests meet an external endpoint."""
+    before: dict[str, str | None] = {}
+    for key in _TOUCHED:
+        row = (
+            await db_session.execute(select(Setting).where(Setting.key == key))
+        ).scalar_one_or_none()
+        before[key] = row.value if row is not None else None
+    yield
+    await _settings(db_session, before)
 
 
 def _text_pdf() -> bytes:
@@ -81,7 +115,9 @@ def chat(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return calls
 
 
-async def _post(client: AsyncClient, headers: dict[str, str], vin: str, name: str, data: bytes, mime: str):
+async def _post(
+    client: AsyncClient, headers: dict[str, str], vin: str, name: str, data: bytes, mime: str
+):
     return await client.post(
         f"/api/vehicles/{vin}/service-visits/read-invoice",
         files={"file": (name, data, mime)},
@@ -96,7 +132,9 @@ class TestReadInvoice:
         self, client: AsyncClient, auth_headers, test_vehicle, db_session: AsyncSession, chat
     ):
         await _settings(db_session, {"llm_document_reading_enabled": "false"})
-        response = await _post(client, auth_headers, test_vehicle["vin"], "i.pdf", _text_pdf(), "application/pdf")
+        response = await _post(
+            client, auth_headers, test_vehicle["vin"], "i.pdf", _text_pdf(), "application/pdf"
+        )
         assert response.status_code == 409
         assert response.json()["detail"] == "ai_reading_not_configured"
         assert chat == []
@@ -108,11 +146,16 @@ class TestReadInvoice:
             db_session,
             {"llm_document_reading_enabled": "true", "llm_base_url": "http://127.0.0.1:11434/v1"},
         )
-        db_session.add(Vendor(name="Foximoto (Pty) Ltd"))
+        vendor = Vendor(name="Foximoto (Pty) Ltd")
+        db_session.add(vendor)
         await db_session.commit()
-        before = (await db_session.execute(select(func.count()).select_from(ServiceVisit))).scalar_one()
+        before = (
+            await db_session.execute(select(func.count()).select_from(ServiceVisit))
+        ).scalar_one()
 
-        response = await _post(client, auth_headers, test_vehicle["vin"], "i.pdf", _text_pdf(), "application/pdf")
+        response = await _post(
+            client, auth_headers, test_vehicle["vin"], "i.pdf", _text_pdf(), "application/pdf"
+        )
 
         assert response.status_code == 200, response.text
         body = response.json()
@@ -122,11 +165,18 @@ class TestReadInvoice:
         draft = body["draft"]
         assert draft["invoice_number"] == "1597"
         assert draft["vendor_id"] is not None
-        assert [line["description"] for line in draft["line_items"]] == ["air filter incl. oil", "brake fluid"]
+        assert [line["description"] for line in draft["line_items"]] == [
+            "air filter incl. oil",
+            "brake fluid",
+        ]
         assert [float(line["cost"]) for line in draft["line_items"]] == [440.0, 181.5]
         assert float(draft["total"]) == 621.5
-        after = (await db_session.execute(select(func.count()).select_from(ServiceVisit))).scalar_one()
+        after = (
+            await db_session.execute(select(func.count()).select_from(ServiceVisit))
+        ).scalar_one()
         assert after == before
+        await db_session.delete(vendor)
+        await db_session.commit()
 
     async def test_a_photo_is_ocrd_for_the_text_model(
         self,
@@ -146,7 +196,9 @@ class TestReadInvoice:
             return "FOXIMOTO (PTY) LTD Invoice 1597\n" + "1 air filter incl. oil R440.00\n" * 10
 
         monkeypatch.setattr(svc, "_ocr", _ocr)
-        response = await _post(client, auth_headers, test_vehicle["vin"], "i.jpg", _jpeg(), "image/jpeg")
+        response = await _post(
+            client, auth_headers, test_vehicle["vin"], "i.jpg", _jpeg(), "image/jpeg"
+        )
         assert response.status_code == 200, response.text
         assert response.json()["source"] == "ocr"
         assert "air filter" in chat[0]["user"]
@@ -176,7 +228,9 @@ class TestReadInvoice:
 
         monkeypatch.setattr(svc, "_ocr", _ocr)
         monkeypatch.setattr(llm_client, "vision_completion", _vision)
-        response = await _post(client, auth_headers, test_vehicle["vin"], "i.jpg", _jpeg(), "image/jpeg")
+        response = await _post(
+            client, auth_headers, test_vehicle["vin"], "i.jpg", _jpeg(), "image/jpeg"
+        )
         assert response.status_code == 200, response.text
         assert response.json()["source"] == "llm"
         assert chat == []
@@ -188,9 +242,14 @@ class TestReadInvoice:
     ):
         await _settings(
             db_session,
-            {"llm_document_reading_enabled": "true", "llm_base_url": "https://openrouter.ai/api/v1"},
+            {
+                "llm_document_reading_enabled": "true",
+                "llm_base_url": "https://openrouter.ai/api/v1",
+            },
         )
-        response = await _post(client, auth_headers, test_vehicle["vin"], "i.pdf", _text_pdf(), "application/pdf")
+        response = await _post(
+            client, auth_headers, test_vehicle["vin"], "i.pdf", _text_pdf(), "application/pdf"
+        )
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "vision_consent_required"
         assert chat == []

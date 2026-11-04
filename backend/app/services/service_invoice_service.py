@@ -46,7 +46,6 @@ from app.models.vendor import Vendor
 from app.services import document_reader_service, llm_client
 from app.services.document_images import has_text_layer, is_pdf, to_images
 from app.services.document_prompts import prompt_for
-from app.services.settings_service import SettingsService
 from app.utils.logging_utils import sanitize_for_log
 
 logger = logging.getLogger(__name__)
@@ -363,34 +362,61 @@ def reconcile(
                 if _close(total_of(reading), total, n):
                     return Reconciled(_without_tax(reading, lines, total, tax), _money(tax))
 
-    # Nothing adds up: a line was misread. Take the reading closest to the
-    # total, before or with tax, and say by how much it is off.
-    costs = [_money(v) for v in amounts]
+    # Nothing adds up: a line was misread or dropped. Each line on its own
+    # then: before tax (taken out at the invoice's rate when the amounts
+    # carry it), or quantity × unit price where that agrees. No line absorbs
+    # another's difference; the warning says how far off the total is.
     if total is None:
-        return Reconciled(costs, _money(tax))
-    best = min(
-        ((abs(total_of(r) + (tax or 0) - total), False, r) for r in readings),
-        key=lambda c: c[0],
-    )
-    if tax:
-        gross = min(((abs(total_of(r) - total), True, r) for r in readings), key=lambda c: c[0])
-        if gross[0] < best[0]:
-            best = gross
-    _, carries_tax, reading = best
-    if carries_tax and tax:
-        net = total_of(reading) * (total - tax) / total
-        costs = _without_tax(reading, lines, net + tax, tax)
-    else:
-        costs = [_money(v) for v in reading]
+        return Reconciled([_money(v) for v in amounts], _money(tax))
+    rate = tax / (total - tax) if tax and total > tax else Decimal(0)
+    gross = bool(rate) and _amounts_carry_tax(lines, rate, total_of(amounts), total, tax)
+    if not gross:
+        rate = Decimal(0)
+    costs: list[Decimal | None] = []
+    for line in lines:
+        base = line.amount / (1 + rate) if line.amount is not None else None
+        product = (
+            line.quantity * line.unit_price
+            if line.quantity is not None and line.unit_price is not None
+            else None
+        )
+        if base is None:
+            costs.append(_money(product))
+        elif product is not None and abs(product - base) <= abs(base) * Decimal("0.01") + CENT:
+            costs.append(_money(product))
+        else:
+            costs.append(_money(base))
     off = total_of(costs) + (tax or 0) - total
     return Reconciled(
         costs,
         _money(tax),
         [
             f"The lines add up to {total + off:.2f} with tax, the invoice says {total:.2f} "
-            f"({off:+.2f}). A line was probably misread: check them before saving."
+            f"({off:+.2f}). A line was probably misread or missed: check them before saving."
         ],
     )
+
+
+def _amounts_carry_tax(
+    lines: list[DraftLine], rate: Decimal, amounts_sum: Decimal, total: Decimal, tax: Decimal | None
+) -> bool:
+    """Whether the ``amount`` column carries tax: a vote of the lines whose
+    quantity × unit price is printed (amount ≈ product, or ≈ product with
+    tax); without any, whichever reading of the sum is nearer the total."""
+    net = gross = 0
+    for line in lines:
+        if line.amount is None or line.quantity is None or line.unit_price is None:
+            continue
+        product = line.quantity * line.unit_price
+        if not product:
+            continue
+        if abs(line.amount - product) <= abs(product) * Decimal("0.01") + CENT:
+            net += 1
+        elif abs(line.amount - product * (1 + rate)) <= abs(product) * Decimal("0.01") + CENT:
+            gross += 1
+    if net or gross:
+        return gross > net
+    return abs(amounts_sum - total) < abs(amounts_sum + (tax or 0) - total)
 
 
 def _without_tax(
@@ -418,7 +444,9 @@ def _without_tax(
             if line.quantity is not None and line.unit_price is not None
             else None
         )
-        snapped = product is not None and abs(product - scaled) <= abs(scaled) * Decimal("0.001") + CENT
+        snapped = (
+            product is not None and abs(product - scaled) <= abs(scaled) * Decimal("0.001") + CENT
+        )
         costs.append(_money(product if snapped else scaled))
         exact.append(snapped)
     rest = net - sum((c for c in costs if c is not None), Decimal(0))
@@ -440,7 +468,9 @@ def _line_note(line: DraftLine, cost: Decimal | None) -> str | None:
         qty = f"{line.quantity.normalize():f}"
         # Only a quantity the line's own figures agree with: OCR turns a 1 into a 4.
         if line.unit_price is not None and cost is not None:
-            if abs(line.quantity * line.unit_price - cost) <= max(abs(cost) * Decimal("0.02"), CENT):
+            if abs(line.quantity * line.unit_price - cost) <= max(
+                abs(cost) * Decimal("0.02"), CENT
+            ):
                 parts.append(f"{qty} × {_money(cost / line.quantity)}")
         else:
             parts.append(f"qty {qty}")
@@ -613,7 +643,10 @@ async def read_service_invoice(
         fields, warnings, source, model = dict(read.fields), list(read.warnings), "llm", read.model
 
     draft, draft_warnings = build_draft(
-        fields, vendors=await _vendors(db), month_first=_month_first(user), today=datetime.now().date()
+        fields,
+        vendors=await _vendors(db),
+        month_first=_month_first(user),
+        today=datetime.now().date(),
     )
     warnings.extend(draft_warnings)
     logger.info(

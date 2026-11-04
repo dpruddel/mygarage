@@ -617,7 +617,9 @@ class ServiceInvoiceDraft(BaseModel):
     date: date_type | None = None
     odometer_km: Decimal | None = None
     vendor_name: str | None = Field(None, description="The workshop as printed")
-    vendor_id: int | None = Field(None, description="The address-book vendor it matched, if one did")
+    vendor_id: int | None = Field(
+        None, description="The address-book vendor it matched, if one did"
+    )
     invoice_number: str | None = None
     currency: str | None = None
     tax_amount: Decimal | None = None

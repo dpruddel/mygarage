@@ -19,12 +19,18 @@ TODAY = date(2026, 11, 4)
 VENDORS = [(1, "Unlimited Auto (ANGRi)"), (4, "Foximoto (Pty) Ltd"), (7, "Shell Ultra City")]
 
 
-def D(value: str) -> Decimal:
+def dec(value: str) -> Decimal:
     return Decimal(value)
 
 
 def _line(desc, qty, price, amount, kind="part"):
-    return {"description": desc, "quantity": qty, "unit_price": price, "amount": amount, "kind": kind}
+    return {
+        "description": desc,
+        "quantity": qty,
+        "unit_price": price,
+        "amount": amount,
+        "kind": kind,
+    }
 
 
 # Line amounts WITH 15 % VAT, as the model returned them; the third line's
@@ -45,18 +51,23 @@ TAX_INCLUSIVE = {
         _line("Chain kit & sprockets", 1, 730.48, 3887.45),
         _line("Conversion Gasket Set", 1, 730.48, 840.05),
         _line("Spark plug", 6, 52.13, 359.70),
-        {"description": "Recondition Cylinder Heads", "quantity": None, "unit_price": None,
-         "amount": 19.77, "kind": "sublet"},
+        {
+            "description": "Recondition Cylinder Heads",
+            "quantity": None,
+            "unit_price": None,
+            "amount": 19.77,
+            "kind": "sublet",
+        },
     ],
 }
 
 
 class TestNumbersAndDates:
     def test_numbers_as_printed(self):
-        assert svc._number("R1 913.00") == D("1913.00")
-        assert svc._number("112,625km") == D("112625")
-        assert svc._number("1.234,56") == D("1234.56")
-        assert svc._number(0.33) == D("0.33")
+        assert svc._number("R1 913.00") == dec("1913.00")
+        assert svc._number("112,625km") == dec("112625")
+        assert svc._number("1.234,56") == dec("1234.56")
+        assert svc._number(0.33) == dec("0.33")
         assert svc._number(True) is None
         assert svc._number("n/a") is None
 
@@ -93,9 +104,18 @@ class TestLines:
     def test_a_wrapped_description_joins_its_line(self):
         lines = svc._lines(
             [
-                _line("air filter fitment, brake fluid replacement and bleeding of brakes,", 1.5, 598, 897),
-                {"description": "fitment of chain adjuster bolt", "quantity": None,
-                 "unit_price": None, "amount": None},
+                _line(
+                    "air filter fitment, brake fluid replacement and bleeding of brakes,",
+                    1.5,
+                    598,
+                    897,
+                ),
+                {
+                    "description": "fitment of chain adjuster bolt",
+                    "quantity": None,
+                    "unit_price": None,
+                    "amount": None,
+                },
             ]
         )
         assert len(lines) == 1
@@ -109,52 +129,72 @@ class TestLines:
 class TestReconcile:
     def test_lines_before_tax_are_kept(self):
         lines = svc._lines([_line("A", 1, 100, 100), _line("B", 2, 50, 100)])
-        rec = svc.reconcile(lines, subtotal=None, tax=D("30"), total=D("230"))
-        assert rec.costs == [D("100.00"), D("100.00")]
-        assert rec.tax_amount == D("30.00")
+        rec = svc.reconcile(lines, subtotal=None, tax=dec("30"), total=dec("230"))
+        assert rec.costs == [dec("100.00"), dec("100.00")]
+        assert rec.tax_amount == dec("30.00")
         assert rec.warnings == []
 
     def test_no_tax_invoice(self):
-        lines = svc._lines([_line("air filter incl. oil", 1, 440, 440), _line("brake fluid", 0.33, 550, 181.5)])
-        rec = svc.reconcile(lines, subtotal=D("621.5"), tax=None, total=D("621.5"))
-        assert rec.costs == [D("440.00"), D("181.50")]
+        lines = svc._lines(
+            [_line("air filter incl. oil", 1, 440, 440), _line("brake fluid", 0.33, 550, 181.5)]
+        )
+        rec = svc.reconcile(lines, subtotal=dec("621.5"), tax=None, total=dec("621.5"))
+        assert rec.costs == [dec("440.00"), dec("181.50")]
         assert rec.tax_amount is None
 
     def test_quantity_times_price_when_amount_is_the_wrong_column(self):
         lines = svc._lines([_line("A", 2, 50, 999), _line("B", 1, 100, 999)])
-        rec = svc.reconcile(lines, subtotal=None, tax=D("30"), total=D("230"))
-        assert rec.costs == [D("100.00"), D("100.00")]
+        rec = svc.reconcile(lines, subtotal=None, tax=dec("30"), total=dec("230"))
+        assert rec.costs == [dec("100.00"), dec("100.00")]
 
     def test_tax_inclusive_lines_lose_the_tax_to_the_cent(self):
         draft, warnings = svc.build_draft(TAX_INCLUSIVE, vendors=VENDORS, today=TODAY)
         costs = [line["cost"] for line in draft["line_items"]]
         assert warnings == []
-        assert draft["tax_amount"] == D("2310.13")
-        assert sum(costs) + draft["tax_amount"] == D("17710.97")
+        assert draft["tax_amount"] == dec("2310.13")
+        assert sum(costs) + draft["tax_amount"] == dec("17710.97")
         # Lines whose quantity × price agrees take it exactly...
-        assert costs[0] == D("10000.00")
-        assert costs[1] == D("960.00")
-        assert costs[3] == D("730.48")
+        assert costs[0] == dec("10000.00")
+        assert costs[1] == dec("960.00")
+        assert costs[3] == dec("730.48")
         # ...and the rounding lands on the line whose unit price was misread.
-        assert costs[2] == D("3380.39")
+        assert costs[2] == dec("3380.39")
 
     def test_a_misread_line_is_a_warning_with_the_difference(self):
         lines = svc._lines([_line("A", 1, 100, 100), _line("B", None, None, 72.5)])  # B is 100
-        rec = svc.reconcile(lines, subtotal=None, tax=D("30"), total=D("230"))
-        assert rec.costs == [D("100.00"), D("72.50")]
+        rec = svc.reconcile(lines, subtotal=None, tax=dec("30"), total=dec("230"))
+        assert rec.costs == [dec("100.00"), dec("72.50")]
         assert len(rec.warnings) == 1
         assert "(-27.50)" in rec.warnings[0]
-        assert rec.tax_amount == D("30.00")
+        assert rec.tax_amount == dec("30.00")
+
+
+class TestReconcileFallback:
+    def test_a_missed_line_on_a_tax_inclusive_invoice_moves_no_money(self):
+        # 3 × 100 before 15 % VAT; the model copied the Total column and missed C.
+        lines = svc._lines([_line("A", 1, 100, 115), _line("B", 2, 50, 115)])
+        rec = svc.reconcile(lines, subtotal=None, tax=dec("45"), total=dec("345"))
+        assert rec.costs == [dec("100.00"), dec("100.00")]
+        assert rec.tax_amount == dec("45.00")
+        assert "(-100.00)" in rec.warnings[0]
+
+    def test_a_misread_unit_price_falls_back_to_the_amount_less_tax(self):
+        lines = svc._lines(
+            [_line("A", 1, 100, 115), _line("B", 1, 100, 115), _line("C", 1, 7, 230)]
+        )  # C really 200 before tax; one line (D, 100) missed
+        rec = svc.reconcile(lines, subtotal=None, tax=dec("75"), total=dec("575"))
+        assert rec.costs == [dec("100.00"), dec("100.00"), dec("200.00")]
+        assert "(-100.00)" in rec.warnings[0]
 
 
 class TestDraft:
     def test_visit_fields(self):
         draft, _ = svc.build_draft(TAX_INCLUSIVE, vendors=VENDORS, today=TODAY)
         assert draft["date"] == date(2025, 11, 19)
-        assert draft["odometer_km"] == D("112625")
+        assert draft["odometer_km"] == dec("112625")
         assert draft["vendor_id"] == 1
         assert draft["currency"] == "ZAR"
-        assert draft["total"] == D("17710.97")
+        assert draft["total"] == dec("17710.97")
         assert draft["notes"] == "Invoice INV18499, Unlimited Auto ANGRi"
 
     def test_line_notes_carry_kind_and_a_quantity_that_agrees(self):
@@ -167,7 +207,7 @@ class TestDraft:
         draft, _ = svc.build_draft(
             {"odometer": 10000, "odometer_unit": "mi", "line_items": []}, vendors=[], today=TODAY
         )
-        assert draft["odometer_km"] == D("16093")
+        assert draft["odometer_km"] == dec("16093")
 
     def test_nothing_read_is_a_warning_not_an_error(self):
         draft, warnings = svc.build_draft({}, vendors=[], today=TODAY)
