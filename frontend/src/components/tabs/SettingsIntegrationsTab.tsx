@@ -459,7 +459,8 @@ function IntegrationsAdminView(): React.ReactElement {
                 />
               </div>
             </div>
-            {isSettingOn(formData.llm_document_reading_enabled, false) && (
+            {(isSettingOn(formData.llm_document_reading_enabled, false) ||
+              isSettingOn(formData.llm_receipt_parse_enabled, false)) && (
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="md:col-span-2">
                   <label htmlFor="llm_vision_model" className="block text-sm font-medium text-garage-text mb-2">

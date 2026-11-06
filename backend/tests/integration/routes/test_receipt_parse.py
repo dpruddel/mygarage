@@ -27,6 +27,7 @@ async def set_settings(db_session, settings_dict: dict[str, str]) -> None:
 
 _PROMPT_KEYS = (
     "date",
+    "time",
     "odometer",
     "odometer_unit",
     "volume",
@@ -594,3 +595,259 @@ def test_number_caps_whole_digits() -> None:
     assert _number("1" * 15) == Decimal("1" * 15)
     assert _number("-" + "1" * 15 + ".5") == Decimal("-" + "1" * 15 + ".5")
     assert _number("1" * 16) is None
+
+
+def _png_bytes() -> bytes:
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (40, 80), "white").save(out, format="PNG")
+    return out.getvalue()
+
+
+def _llm_response(content: str) -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(return_value={"choices": [{"message": {"content": content}}]})
+    return response
+
+
+# What gemma3:4b returned for a real Engen slip that prints the litres bare
+# ("15.42 R 459.21") and no unit price: the rand sign as the volume's unit (the
+# real reply), and an invented price (to check it is replaced).
+_VISION_REPLY = json.dumps(
+    {
+        "date": "2026-10-24",
+        "time": "8:20",
+        "station_name": "Engen Zaaymans Garage",
+        "fuel_type_used": "gasoline",
+        "volume": "15.42",
+        "volume_unit": "R",
+        "cost": "459.21",
+        "price_per_unit": 30.00,
+        "price_volume_unit": "L",
+    }
+)
+
+_VISION_SETTINGS = {
+    "llm_receipt_parse_enabled": "true",
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "llm_model": "qwen2.5:7b",
+    "llm_vision_model": "gemma3:4b",
+}
+
+
+async def _upload_photo(client: AsyncClient, auth_headers, vin: str, posts: list, ocr_text: str):
+    """Post a PNG to the parse route with the LLM replies in ``posts`` (in order)."""
+    with (
+        patch("httpx.AsyncClient") as mock_client,
+        patch(
+            "app.services.document_ocr.DocumentOCRService.extract_text_from_bytes",
+            new=AsyncMock(return_value=ocr_text),
+        ) as ocr,
+    ):
+        mock_instance = AsyncMock()
+        mock_instance.post = AsyncMock(side_effect=posts)
+        mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client.return_value = mock_instance
+        response = await client.post(
+            f"/api/vehicles/{vin}/fuel/parse-receipt",
+            files={"file": ("slip.png", _png_bytes(), "image/png")},
+            headers=auth_headers,
+        )
+    assert response.status_code == 200, response.text
+    return response.json()["draft"], mock_instance.post, ocr
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestReceiptParseVision:
+    async def test_photo_goes_to_the_vision_model_without_ocr(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        await set_settings(db_session, _VISION_SETTINGS)
+        draft, post, ocr = await _upload_photo(
+            client, auth_headers, test_vehicle["vin"], [_llm_response(_VISION_REPLY)], "unused"
+        )
+        ocr.assert_not_awaited()
+        payload = post.await_args.kwargs["json"]
+        assert payload["model"] == "gemma3:4b"
+        assert payload["messages"][1]["content"][1]["image_url"]["url"].startswith(
+            "data:image/jpeg;base64,"
+        )
+        assert draft["time"] == "08:20"
+        assert draft["station_name"] == "Engen Zaaymans Garage"
+        # The bare 15.42 is read in the household's unit, not dropped over "R".
+        assert draft["liters"] in (15.42, 58.371)
+        assert draft["cost"] == 459.21
+        # The slip's own numbers, not the model's invented 30.00.
+        assert draft["price_per_unit"] == round(459.21 / draft["liters"], 4)
+
+    async def test_blank_vision_model_keeps_the_ocr_path(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        await set_settings(db_session, {**_VISION_SETTINGS, "llm_vision_model": ""})
+        reply = _llm_response(json.dumps({"volume": 15.42, "volume_unit": "L", "cost": 459.21}))
+        draft, post, ocr = await _upload_photo(
+            client, auth_headers, test_vehicle["vin"], [reply], "15.42 R 459.21"
+        )
+        ocr.assert_awaited_once()
+        payload = post.await_args.kwargs["json"]
+        assert payload["model"] == "qwen2.5:7b"
+        assert isinstance(payload["messages"][1]["content"], str)
+        assert draft["liters"] == 15.42
+
+    async def test_external_endpoint_never_gets_the_photo(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        await set_settings(db_session, {**_VISION_SETTINGS, "llm_base_url": "https://1.1.1.1/v1"})
+        reply = _llm_response(json.dumps({"volume": 15.42, "volume_unit": "L"}))
+        _, post, ocr = await _upload_photo(
+            client, auth_headers, test_vehicle["vin"], [reply], "15.42"
+        )
+        ocr.assert_awaited_once()
+        assert post.await_count == 1
+        assert isinstance(post.await_args.kwargs["json"]["messages"][1]["content"], str)
+
+    async def test_failed_vision_call_falls_back_to_ocr_and_the_text_model(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        import httpx
+
+        await set_settings(db_session, _VISION_SETTINGS)
+        reply = _llm_response(json.dumps({"volume": 15.42, "volume_unit": "L", "cost": 459.21}))
+        draft, post, ocr = await _upload_photo(
+            client,
+            auth_headers,
+            test_vehicle["vin"],
+            [httpx.ConnectError("model not found"), reply],
+            "Unleaded 95 P 7 15.42 R 459.21",
+        )
+        ocr.assert_awaited_once()
+        assert post.await_args_list[1].kwargs["json"]["model"] == "qwen2.5:7b"
+        assert draft["price_per_unit"] == 29.7802
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestReceiptDraftSettling:
+    async def test_missing_price_is_total_over_volume(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        draft, _ = await _parse_with_llm(
+            client,
+            auth_headers,
+            test_vehicle["vin"],
+            db_session,
+            {"volume": 11.702, "volume_unit": "L", "cost": 347.43},
+        )
+        assert draft["price_per_unit"] == 29.6898
+
+    async def test_missing_cost_or_volume_comes_from_the_other_two(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session
+    ):
+        draft, _ = await _parse_with_llm(
+            client,
+            auth_headers,
+            test_vehicle["vin"],
+            db_session,
+            {"volume": 5.36, "volume_unit": "L", "price_per_unit": 29.69, "price_volume_unit": "L"},
+        )
+        assert draft["cost"] == 159.14
+        draft, _ = await _parse_with_llm(
+            client,
+            auth_headers,
+            test_vehicle["vin"],
+            db_session,
+            {"cost": 342.83, "price_per_unit": 29.69, "price_volume_unit": "L"},
+        )
+        assert draft["liters"] == 11.547
+
+    @pytest.mark.parametrize(
+        ("printed", "expected"),
+        [
+            ("08:20", "08:20"),
+            ("8:05 AM", "08:05"),
+            ("4:03 PM", "16:03"),
+            ("12:10 am", "00:10"),
+            ("12:30 PM", "12:30"),
+            ("15:37:21", "15:37"),
+            ("13:00 PM", None),
+            ("25:00", None),
+        ],
+    )
+    async def test_time_is_canonical_hh_mm(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session, printed, expected
+    ):
+        draft, system = await _parse_with_llm(
+            client, auth_headers, test_vehicle["vin"], db_session, {"time": printed}
+        )
+        assert draft["time"] == expected
+        assert "gasoline" in system
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestReceiptVolumeUnitFallback:
+    async def _user_volume_unit(self, client: AsyncClient, auth_headers) -> str:
+        """The shared test user's volume unit, read rather than set (see test_unit_preferences)."""
+        from app.utils.unit_resolution import base_preset_for
+
+        r = await client.get("/api/auth/me", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        me = r.json()
+        return me["unit_volume"] or base_preset_for(me["unit_preference"]).volume
+
+    @pytest.mark.parametrize("printed", [None, "", "R", "$", "ZAR"])
+    async def test_bare_volume_is_read_in_the_households_unit(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session, printed
+    ):
+        draft, _ = await _parse_with_llm(
+            client,
+            auth_headers,
+            test_vehicle["vin"],
+            db_session,
+            {"volume": 15.42, "volume_unit": printed, "cost": 459.21},
+        )
+        unit = await self._user_volume_unit(client, auth_headers)
+        expected = {"L": 15.42, "gal_us": 58.371}[unit]
+        assert draft["liters"] == expected
+
+    @pytest.mark.parametrize("printed", ["imp gal", "kWh", "litros?", "km"])
+    async def test_a_volume_unit_we_cant_read_still_nulls_the_volume(
+        self, client: AsyncClient, auth_headers, test_vehicle, db_session, printed
+    ):
+        draft, _ = await _parse_with_llm(
+            client,
+            auth_headers,
+            test_vehicle["vin"],
+            db_session,
+            {"volume": 15.42, "volume_unit": printed, "cost": 459.21},
+        )
+        assert draft["liters"] is None
+        assert draft["cost"] == 459.21
+
+
+def test_a_dd_mm_yy_slip_date_read_as_yy_mm_dd_is_put_right() -> None:
+    """ "22-10-26" (22 Oct 2026) comes back from the model as 2026-10-22's mirror."""
+    from datetime import date
+
+    from app.services.receipt_parse_service import _date
+
+    today = date(2026, 11, 2)
+    assert _date("2022-10-26", today) == "2026-10-22"
+    assert _date("2025-10-26", today) == "2026-10-25"
+    # Already recent, or a mirror that isn't recent either: as given.
+    assert _date("2026-10-24", today) == "2026-10-24"
+    assert _date("2024-03-15", today) == "2024-03-15"
+    # A future date ("27-10-26" read as 2027-10-26) is mirrored too.
+    assert _date("2027-10-26", today) == "2026-10-27"
+    # But only into the recent past: never a future mirror, nor an impossible date.
+    assert _date("2030-12-26", today) == "2030-12-26"
+    assert _date("2031-02-26", today) == "2031-02-26"
+    # Not an ISO date at all: untouched, as before.
+    assert _date("24/10/2026", today) == "24/10/2026"
+    assert _date(None, today) is None
