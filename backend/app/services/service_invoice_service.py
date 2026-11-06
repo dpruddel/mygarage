@@ -525,19 +525,17 @@ def build_draft(
     if not draft_lines:
         warnings.append("No lines were read from the invoice.")
 
-    notes = None
-    if invoice_number:
-        notes = f"Invoice {invoice_number}" + (f", {vendor_name}" if vendor_name else "")
     draft = {
         "date": visit_date,
         "odometer_km": odometer,
         "vendor_name": vendor_name,
         "vendor_id": match_vendor(vendor_name, vendors),
-        "invoice_number": invoice_number,
+        # The visit's own invoice number field (max 50 chars), not the notes.
+        "invoice_number": invoice_number[:50] if invoice_number else None,
         "currency": (_text(raw.get("currency")) or "").upper()[:3] or None,
         "tax_amount": rec.tax_amount,
         "total": _money(total),
-        "notes": notes,
+        "notes": None,
         "line_items": draft_lines,
     }
     return draft, warnings

@@ -572,6 +572,7 @@ function ServiceVisitForm({
         vendor_id: draft.vendor_id ?? prev.vendor_id,
         odometer_km: odometerKm !== undefined ? readTypedNumber(u.distance.toInputValue(odometerKm)) : prev.odometer_km,
         tax_amount: tax ?? prev.tax_amount,
+        invoice_number: prev.invoice_number || draft.invoice_number?.slice(0, 50) || '',
         notes,
         line_items: kept.length + read.length > 0 ? [...kept, ...read] : prev.line_items,
       }
@@ -581,6 +582,10 @@ function ServiceVisitForm({
       ...(odometerKm !== undefined ? { odometer_km: u.distance.toInputValue(odometerKm) } : {}),
       ...(tax !== undefined ? { tax_amount: String(tax) } : {}),
     }))
+    if (draft.invoice_number) {
+      setRefsOn((prev) => ({ ...prev, invoice_number: true }))
+      setRefsTouched((prev) => ({ ...prev, invoice_number: true }))
+    }
     setFieldErrors({})
     setError(null)
     setInvoiceFile(file)

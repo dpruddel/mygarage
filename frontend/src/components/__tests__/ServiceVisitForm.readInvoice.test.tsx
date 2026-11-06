@@ -38,6 +38,9 @@ vi.mock('../../hooks/queries/useAiDocumentReading', () => ({
 vi.mock('../VendorSearch', () => ({
   default: ({ value }: { value?: number }) => <div data-testid="vendor-search" data-value={value ?? ''} />,
 }))
+// The line items' recall and warranty pickers; nothing to offer here.
+vi.mock('../../hooks/queries/useRecallRecords', () => ({ useRecallRecords: () => ({ data: { recalls: [] } }) }))
+vi.mock('../../hooks/queries/useWarrantyRecords', () => ({ useWarrantyRecords: () => ({ data: [] }) }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 const VIN = 'TEST12345678901234'
@@ -55,7 +58,7 @@ const READ = {
     currency: 'ZAR',
     tax_amount: '15.00',
     total: '115.00',
-    notes: 'Invoice INV18499, Unlimited Auto ANGRi',
+    notes: null,
     line_items: [
       { description: 'Water Pump', cost: '60.00', kind: 'part', notes: 'Part' },
       { description: 'Fit pump', cost: '40.00', kind: 'labour', notes: 'Labour' },
@@ -88,6 +91,7 @@ describe('ServiceVisitForm: read invoice', () => {
     expect(screen.getByTestId('vendor-search').dataset.value).toBe('1')
     expect(screen.getByDisplayValue('Water Pump')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Fit pump')).toBeInTheDocument()
+    expect(input('invoice-number').value).toBe('INV18499')
     // Only the read: nothing created yet.
     expect(mockedApiPost).toHaveBeenCalledTimes(1)
 
@@ -102,7 +106,7 @@ describe('ServiceVisitForm: read invoice', () => {
       vendor_id: 1,
       odometer_km: 112625,
       tax_amount: 15,
-      notes: 'Invoice INV18499, Unlimited Auto ANGRi',
+      invoice_number: 'INV18499',
     })
     // The blank starting line was replaced, not kept.
     expect(created.line_items.map((l: { description: string; cost?: number }) => [l.description, l.cost])).toEqual([

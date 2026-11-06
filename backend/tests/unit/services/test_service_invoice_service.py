@@ -195,7 +195,8 @@ class TestDraft:
         assert draft["vendor_id"] == 1
         assert draft["currency"] == "ZAR"
         assert draft["total"] == dec("17710.97")
-        assert draft["notes"] == "Invoice INV18499, Unlimited Auto ANGRi"
+        assert draft["invoice_number"] == "INV18499"
+        assert draft["notes"] is None
 
     def test_line_notes_carry_kind_and_a_quantity_that_agrees(self):
         draft, _ = svc.build_draft(TAX_INCLUSIVE, vendors=VENDORS, today=TODAY)
