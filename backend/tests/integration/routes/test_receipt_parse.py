@@ -851,3 +851,75 @@ def test_a_dd_mm_yy_slip_date_read_as_yy_mm_dd_is_put_right() -> None:
     # Not an ISO date at all: untouched, as before.
     assert _date("24/10/2026", today) == "24/10/2026"
     assert _date(None, today) is None
+
+
+@pytest.mark.parametrize(
+    ("printed", "expected"),
+    [
+        # How gemma4:e4b returned the TOTAL Tokai slip (IMG_5610).
+        ("R2, 344.60", Decimal("2344.60")),
+        ("R29.37", Decimal("29.37")),
+        ("R29.37/L", Decimal("29.37")),
+        ("79.830 L", Decimal("79.830")),
+        ("R2,344.60", Decimal("2344.60")),
+        ("R 2 344.60", Decimal("2344.60")),
+        ("2.344,60", Decimal("2344.60")),
+        ("29.37 ZAR", Decimal("29.37")),
+        ("€1.859", Decimal("1.859")),
+        ("1,85", Decimal("1.85")),
+        ("1,234,567.89", Decimal("1234567.89")),
+        ("121 264 km", Decimal("121264")),
+        # 1859 or 1.859? Null, not a guess.
+        ("1,859", None),
+        ("1,2,3", None),
+        ("2 34.60", None),
+        ("R", None),
+        ("1_000", None),
+        ("1e3", None),
+    ],
+)
+def test_amounts_are_read_as_printed(printed: str, expected: Decimal | None) -> None:
+    from app.services.receipt_parse_service import _number
+
+    assert _number(printed) == expected
+
+
+def test_a_price_with_a_currency_for_its_unit_is_per_the_volume_unit() -> None:
+    """IMG_5610 as gemma4:e4b read it: money as printed, price unit "R"."""
+    from datetime import date
+
+    from app.services.receipt_parse_service import _build_draft
+
+    draft = _build_draft(
+        {
+            "date": "2026-11-10",
+            "time": "08:15",
+            "volume": 79.83,
+            "volume_unit": "Litre(s)",
+            "cost": "R2, 344.60",
+            "price_per_unit": "R29.37",
+            "price_volume_unit": "R",
+        },
+        "L",
+        today=date(2026, 11, 10),
+    )
+    assert draft["liters"] == Decimal("79.830")
+    assert draft["cost"] == Decimal("2344.60")
+    assert draft["price_per_unit"] == Decimal("29.370")
+
+
+@pytest.mark.parametrize("printed", ["per L", "/L", "/ litre", "Per Litre"])
+def test_a_price_unit_written_as_per_unit_is_read(printed: str) -> None:
+    from app.services.receipt_parse_service import _unit
+
+    assert _unit(printed, ("L", "gal")) == "L"
+
+
+def test_a_price_unit_we_cannot_convert_still_nulls_the_price() -> None:
+    from app.services.receipt_parse_service import _build_draft
+
+    draft = _build_draft(
+        {"volume": 40, "volume_unit": "L", "price_per_unit": 1.5, "price_volume_unit": "imp gal"},
+        "L",
+    )
+    assert draft["price_per_unit"] is None

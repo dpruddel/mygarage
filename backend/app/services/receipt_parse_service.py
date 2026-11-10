@@ -63,6 +63,8 @@ _UNIT_ALIASES = {
     "liters": "L",
     "litre": "L",
     "litres": "L",
+    "litre(s)": "L",
+    "liter(s)": "L",
     "gal": "gal",
     "gallon": "gal",
     "gallons": "gal",
@@ -95,10 +97,62 @@ _KWH_COL = _column_type("kwh")
 # of those is how a receipt prints a number. Fifteen whole digits is more than
 # any column holds, and a million-digit one would overflow the mi/gal maths.
 _PLAIN_DECIMAL = re.compile(r"-?[0-9]{1,15}(?:\.[0-9]+)?")
+# A number as a slip prints it, which is how vision models return it: a
+# currency sign or code before or after it ("R2,344.60", "29.37 EUR"), a
+# per-unit suffix ("R29.37/L") and thousands separators, sometimes with a
+# stray space beside one ("R2, 344.60").
+_PRINTED_NUMBER = re.compile(
+    r"(?:[A-Za-z]{1,3}\$?|[$\u20ac\u00a3\u00a5\u20b9\u20a6])?\s*"
+    r"(?P<number>-?[0-9][0-9 .,]*?)\s*"
+    r"(?:(?:/\s*)?[A-Za-z]{1,6}|[$\u20ac\u00a3\u00a5\u20b9\u20a6])?"
+)
+_GROUPED = {
+    ",": re.compile(r"-?[0-9]{1,3}(?:,[0-9]{3})+"),
+    ".": re.compile(r"-?[0-9]{1,3}(?:\.[0-9]{3})+"),
+}
+_SPACE_GROUPED = re.compile(r"-?[0-9]{1,3}(?: [0-9]{3})+(?:[.,][0-9]+)?")
+
+
+def _printed_decimal(text: str) -> str | None:
+    """A printed amount as a plain decimal string, or None when it is ambiguous.
+
+    "2,344.60", "2.344,60" and "2 344.60" are all 2344.60: the last of a dot
+    and a comma is the decimal point. A lone comma is a decimal comma ("1,85"),
+    except before exactly three digits: "1,859" is 1859 on one slip and 1.859
+    per litre on another, so that is None rather than a guess. Several dots or
+    commas in groups of three are thousands ("1.234.567").
+    """
+    match = _PRINTED_NUMBER.fullmatch(text)
+    if match is None:
+        return None
+    number = re.sub(r"\s*([.,])\s*", r"\1", match["number"])
+    if " " in number:
+        if not _SPACE_GROUPED.fullmatch(number):
+            return None
+        number = number.replace(" ", "")
+    if "." in number and "," in number:
+        decimal_mark = "." if number.rfind(".") > number.rfind(",") else ","
+        whole, _, fraction = number.rpartition(decimal_mark)
+        thousands = "," if decimal_mark == "." else "."
+        if not fraction.isdigit() or not _GROUPED[thousands].fullmatch(whole):
+            return None
+        return whole.replace(thousands, "") + "." + fraction
+    for mark in (",", "."):
+        if number.count(mark) > 1:
+            return number.replace(mark, "") if _GROUPED[mark].fullmatch(number) else None
+    if "," in number:
+        if _GROUPED[","].fullmatch(number):
+            return None
+        return number.replace(",", ".")
+    return number
 
 
 def _number(value: Any) -> Decimal | None:
-    """An int, float or plain decimal string as a finite Decimal; anything else is None."""
+    """An int, float or decimal string as a finite Decimal; anything else is None.
+
+    A string may be a plain decimal or an amount as printed; see
+    ``_printed_decimal``.
+    """
     # bool is an int subclass, and Decimal(True) is 1. True is not 1 litre.
     if isinstance(value, bool):
         return None
@@ -107,7 +161,12 @@ def _number(value: Any) -> Decimal | None:
     if isinstance(value, float):
         number = Decimal(repr(value))
         return number if number.is_finite() else None
-    if isinstance(value, str) and _PLAIN_DECIMAL.fullmatch(text := value.strip()):
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not _PLAIN_DECIMAL.fullmatch(text):
+        text = _printed_decimal(text) or ""
+    if _PLAIN_DECIMAL.fullmatch(text):
         return Decimal(text)
     return None
 
@@ -116,7 +175,9 @@ def _unit(value: Any, allowed: tuple[str, ...]) -> str | None:
     """The canonical unit for a printed spelling, if it's one of `allowed`."""
     if not isinstance(value, str):
         return None
-    unit = _UNIT_ALIASES.get(value.strip().lower())
+    # A price's unit often comes back as written beside it: "per L", "/L".
+    text = re.sub(r"^(?:per\s+|/\s*)", "", value.strip().lower())
+    unit = _UNIT_ALIASES.get(text)
     return unit if unit in allowed else None
 
 
@@ -261,12 +322,14 @@ def _build_draft(
     by default) anchors the slip-date repair in ``_date``.
     """
     odometer = _converted(raw.get("odometer"), raw.get("odometer_unit"), ("km", "mi"))
-    liters_raw = _converted(
-        raw.get("volume"),
-        _volume_unit(raw.get("volume_unit"), household_volume_unit),
-        ("L", "gal"),
+    volume_unit = _volume_unit(raw.get("volume_unit"), household_volume_unit)
+    liters_raw = _converted(raw.get("volume"), volume_unit, ("L", "gal"))
+    # The price is per the volume's unit when the model gives a non-unit
+    # (the "R" of "R29.37/L") or none; settling below still checks it against
+    # total / litres. A volume unit we can't convert (imp gal) stays null.
+    price_raw = _price_per_liter(
+        raw.get("price_per_unit"), _volume_unit(raw.get("price_volume_unit"), volume_unit)
     )
-    price_raw = _price_per_liter(raw.get("price_per_unit"), raw.get("price_volume_unit"))
     # Settled only after the column checks, so nothing too big to store
     # yields a "price" from two absurd neighbours.
     liters, cost, price = _settled(
@@ -367,6 +430,8 @@ _SYSTEM = (
     + ", ".join(sorted(_FUEL_TYPES))
     + " (petrol and unleaded are gasoline). "
     "Do not mistake pump numbers, receipt numbers or card digits for volumes or amounts. "
+    "station_name is the fuel retailer (brand and site), never the bank, card or "
+    "payment terminal named on the slip. "
     "Use null for anything the receipt doesn't say, including a unit."
 )
 

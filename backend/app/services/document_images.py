@@ -61,6 +61,19 @@ def _encode(image: Image.Image, quality: int) -> bytes:
     return buffer.getvalue()
 
 
+def tesseract_ready(image: Image.Image) -> Image.Image:
+    """``image`` upright, in a form pytesseract accepts.
+
+    pytesseract refuses any format it doesn't list ("Unsupported image
+    format/type"), and an iPhone HDR JPEG opens as MPO, so OCR of every such
+    photo returned "". The copy has no format, which pytesseract sends as PNG.
+    """
+    oriented = ImageOps.exif_transpose(image) or image
+    if oriented.mode not in ("RGB", "L"):
+        oriented = oriented.convert("RGB")
+    return oriented.copy() if oriented is image else oriented
+
+
 def _prepare(image: Image.Image, max_side: int) -> Image.Image:
     """Oriented, RGB, no larger than ``max_side`` on its longest side."""
     oriented = ImageOps.exif_transpose(image) or image
