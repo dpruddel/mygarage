@@ -140,3 +140,26 @@ class TestToImages:
             pytest.skip(f"no HEIF encoder: {exc} ({pillow_heif.__version__})")
         images = to_images(buffer.getvalue(), "IMG_0001.HEIC", "image/heic")
         assert _decode(images[0][0]).size == (320, 240)
+
+
+def test_tesseract_ready_turns_an_iphone_mpo_into_an_image_pytesseract_takes() -> None:
+    """iPhone HDR JPEGs open as MPO, which pytesseract refuses outright."""
+    import io
+
+    import pytesseract
+    from PIL import Image
+
+    from app.services.document_images import tesseract_ready
+
+    frame = Image.new("RGB", (40, 20), "white")
+    buffer = io.BytesIO()
+    frame.save(buffer, "MPO", save_all=True, append_images=[frame.copy()])
+    photo = Image.open(io.BytesIO(buffer.getvalue()))
+    assert photo.format == "MPO"
+    with pytest.raises(TypeError):
+        pytesseract.pytesseract.prepare(photo)
+
+    ready = tesseract_ready(photo)
+    assert ready.format is None
+    assert ready.mode == "RGB"
+    pytesseract.pytesseract.prepare(ready)

@@ -252,8 +252,10 @@ class WindowStickerOCRService:
             import pytesseract
             from PIL import Image
 
+            from app.services.document_images import tesseract_ready
+
             image = await asyncio.to_thread(Image.open, file_path)
-            text = await asyncio.to_thread(pytesseract.image_to_string, image)
+            text = await asyncio.to_thread(pytesseract.image_to_string, tesseract_ready(image))
             return str(text)
         except ImportError:
             logger.warning("PIL or pytesseract not installed, OCR not available")
@@ -280,8 +282,10 @@ class WindowStickerOCRService:
             import pytesseract
             from PIL import Image
 
+            from app.services.document_images import tesseract_ready
+
             image = Image.open(io.BytesIO(img_bytes))
-            return str(await asyncio.to_thread(pytesseract.image_to_string, image))
+            return str(await asyncio.to_thread(pytesseract.image_to_string, tesseract_ready(image)))
         except Exception as e:
             logger.error("Error OCR-ing image bytes: %s", e)
             return ""
