@@ -116,6 +116,8 @@ export function useImportFuelCSV(vin: string) {
 
 export interface FuelReceiptDraft {
   date?: string | null
+  /** Canonical HH:MM (24h) as printed on the receipt. */
+  time?: string | null
   odometer_km?: number | null
   liters?: number | null
   kwh?: number | null

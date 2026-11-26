@@ -35,7 +35,9 @@ from app.schemas.fuel import (
 from app.services.auth import get_vehicle_or_403, require_auth
 from app.services.fuel_service import FuelRecordService, build_fuel_response
 from app.services.receipt_parse_service import parse_receipt_draft
+from app.utils.default_unit_prefs import load_default_unit_prefs
 from app.utils.household_time import household_wall_clock_to_utc
+from app.utils.unit_resolution import resolve_units
 
 logger = logging.getLogger(__name__)
 
@@ -142,12 +144,15 @@ async def parse_fuel_receipt(
         filename = file.filename
         content_type = file.content_type
 
+    # The volume unit a receipt that prints none is read in: the caller's own.
+    units = resolve_units(current_user) if current_user else await load_default_unit_prefs(db)
     result = await parse_receipt_draft(
         db,
         text=text,
         file_bytes=file_bytes,
         filename=filename,
         content_type=content_type,
+        household_volume_unit={"L": "L", "gal_us": "gal"}.get(units.volume),
     )
     return FuelReceiptParseResponse.model_validate(result)
 
